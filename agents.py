@@ -25,8 +25,10 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import (
     AgentMiddleware,
     HumanInTheLoopMiddleware,
+    ModelCallLimitMiddleware,
     PIIMiddleware,
     SummarizationMiddleware,
+    ToolCallLimitMiddleware,
 )
 from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
@@ -41,6 +43,20 @@ AGENT_MODEL = os.environ.get("AGENT_MODEL", "claude-sonnet-5-5")
 SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL", "claude-haiku-4-5")
 SUMMARY_MODEL = "claude-haiku-4-5"
 WORKSPACE_DIR = Path(__file__).parent / "agent_workspace"
+
+# Safety caps per question, so a looping agent can't keep spending tokens.
+AGENT_MAX_MODEL_CALLS = 6
+AGENT_MAX_TOOL_CALLS = 8
+SUBAGENT_MAX_MODEL_CALLS = 4
+
+
+def call_limits(max_model_calls: int, max_tool_calls: int | None = None) -> list:
+    """Stop the run (instead of erroring) once a cap is reached."""
+    limits = [ModelCallLimitMiddleware(run_limit=max_model_calls, exit_behavior="end")]
+    if max_tool_calls:
+        limits.append(ToolCallLimitMiddleware(run_limit=max_tool_calls, exit_behavior="end"))
+    return limits
+
 
 TICKET_APPROVAL = {"create_support_ticket": {"allowed_decisions": ["approve", "reject"]}}
 
@@ -202,6 +218,7 @@ def build_agent(vector_store: InMemoryVectorStore) -> AgentRunner:
         tools=[search, create_support_ticket],
         system_prompt=AGENT_PROMPT,
         middleware=[
+            *call_limits(AGENT_MAX_MODEL_CALLS, AGENT_MAX_TOOL_CALLS),
             # Redact email addresses the user types before they reach the model.
             PIIMiddleware("email", strategy="redact", apply_to_input=True),
             # Keep long chats within budget: summarize older messages.
@@ -271,7 +288,7 @@ def build_multi_agent(vector_store: InMemoryVectorStore) -> AgentRunner:
                 make_llm(SUBAGENT_MODEL),
                 tools=[search],
                 system_prompt=SUBAGENT_PROMPT.format(name=name),
-                middleware=[StepLogger(name)],
+                middleware=[*call_limits(SUBAGENT_MAX_MODEL_CALLS), StepLogger(name)],
                 name=name,
             ),
         })
@@ -281,7 +298,8 @@ def build_multi_agent(vector_store: InMemoryVectorStore) -> AgentRunner:
         model=make_llm(AGENT_MODEL, effort="low"),
         tools=[create_support_ticket],
         system_prompt=SUPERVISOR_PROMPT,
-        middleware=[StepLogger("supervisor")],
+        middleware=[*call_limits(AGENT_MAX_MODEL_CALLS, AGENT_MAX_TOOL_CALLS),
+                    StepLogger("supervisor")],
         subagents=subagents,
         memory=["/AGENTS.md"],    # loaded into the system prompt
         skills=["/skills/"],      # loaded on demand (progressive disclosure)

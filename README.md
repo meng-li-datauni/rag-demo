@@ -40,6 +40,7 @@ The two agent modes share these features:
   - `agent_workspace/skills/incident-summary/SKILL.md` (a skill loaded only when relevant)
   - file tools confined to `agent_workspace/`, with writes allowed only under `/notes/`
   - kept small to save tokens: the sub-agents are plain `create_agent` graphs with only their search tool, a harness profile removes the deep-agent tools this demo doesn't use (`edit_file`, `delete`, `glob`, `grep`, `execute`) along with the default general-purpose sub-agent, and the supervisor runs at `low` effort
+- **Safety caps:** at most 6 Claude calls and 8 tool calls per question (4 calls per sub-agent). A looping agent stops with a "limit exceeded" message instead of spending more tokens. Change these in `agents.py` (`AGENT_MAX_MODEL_CALLS` and related constants).
 - **Prompt caching:** the system prompt and tool definitions are cached between calls (`AnthropicPromptCachingMiddleware`; built into deepagents), so repeated reads within 5 minutes cost 10% of the normal input price
 
 **Cost:** agent modes make several Claude calls per question: 2–3 for Agent, 4–6 for Multi-agent. The Monitoring tab shows the actual tokens and cost of each request. To keep costs down, set `AGENT_MODEL=claude-haiku-4-5` in `.env`.
@@ -58,6 +59,7 @@ The two agent modes share these features:
 | `server.py` | FastAPI backend: chat, approval, feedback, monitoring and evaluation APIs |
 | `static/index.html` | Web UI with Chat, Monitoring and Evaluation tabs (plain HTML/JS) |
 | `main.py` | Terminal chat loop (RAG mode) |
+| `tests/` | Offline test suite (`pytest`) |
 
 ### The documents
 
@@ -137,6 +139,21 @@ Each question is scored on two things:
 - **Answer:** does the answer contain every expected fact? This is a case-insensitive keyword match, and `a|b` accepts either spelling.
 
 The keyword match is strict. A correct answer phrased differently can still fail, so read the answers as well as the score. LangSmith's LLM-as-judge evaluator (below) is more tolerant of rephrasing.
+
+## Tests
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
+
+The suite runs fully offline in about 10 seconds. A scripted fake model stands in for Claude, so it makes no API calls and sends nothing to LangSmith. It covers:
+
+- **Retrieval** against the real local index: every test question finds its expected PDF, and the sub-agents' searches stay limited to their own PDFs
+- **Scoring rules**
+- **Cost math and monitoring storage**
+- **Agents:** tool use, the approval flow (approve and reject), memory, email redaction, the call cap, delegation to sub-agents, and tool trimming
+- **Every server endpoint**
 
 ## LangSmith
 

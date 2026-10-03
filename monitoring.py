@@ -83,8 +83,8 @@ class UsageTracker(BaseCallbackHandler):
 
 
 class MonitoringStore:
-    def __init__(self, path: Path = DB_PATH):
-        self._conn = sqlite3.connect(path, check_same_thread=False)
+    def __init__(self, path: Path | None = None):
+        self._conn = sqlite3.connect(path or DB_PATH, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
