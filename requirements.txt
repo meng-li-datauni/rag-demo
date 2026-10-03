@@ -1,0 +1,14 @@
+langchain-anthropic
+langchain-core
+langchain-huggingface
+langchain-text-splitters
+sentence-transformers
+pypdf
+fpdf2
+fastapi
+uvicorn[standard]
+python-dotenv
+langchain
+langgraph
+deepagents
+langsmith

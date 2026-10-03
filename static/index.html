@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Demo</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2127; --muted: #6b7280;
+    --border: #e3e6ea; --accent: #2f6fed; --user-bg: #2f6fed; --user-text: #fff;
+    --bot-bg: #ffffff; --error: #c0392b; --warn-bg: #fff7e6; --warn-border: #f0b44c;
+    --ok: #1f9d55;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171b; --panel: #1d2026; --text: #e6e8eb; --muted: #9aa1ab;
+      --border: #2c3038; --accent: #5b8cff; --user-bg: #3a6df0; --user-text: #fff;
+      --bot-bg: #23272e; --error: #ff6b5b; --warn-bg: #2d2617; --warn-border: #b8862f;
+      --ok: #3ccf7d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  aside {
+    width: 270px; flex-shrink: 0; padding: 20px; background: var(--panel);
+    border-right: 1px solid var(--border); overflow-y: auto;
+  }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; }
+  aside section + section { margin-top: 22px; }
+  aside ul { list-style: none; padding: 0; margin: 0 0 8px; }
+  aside li { padding: 4px 0; font-size: 14px; word-break: break-all; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .modes { display: flex; flex-direction: column; gap: 6px; }
+  .modes label {
+    display: block; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  }
+  .modes label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .modes input { margin-right: 6px; }
+  .modes small { display: block; color: var(--muted); font-size: 12px; margin-left: 22px; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  aside > button { margin-top: 16px; width: 100%; }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  header { padding: 14px 24px 0; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 2px 0 8px; color: var(--muted); font-size: 13px; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button {
+    border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent;
+    padding: 8px 12px; color: var(--muted);
+  }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .view { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  .view.active { display: flex; }
+  .scroll { flex: 1; overflow-y: auto; padding: 24px; }
+  #messages { display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 760px; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .user { align-self: flex-end; background: var(--user-bg); color: var(--user-text); }
+  .bot { align-self: flex-start; background: var(--bot-bg); border: 1px solid var(--border); }
+  .bot.error { color: var(--error); }
+  .badge {
+    display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; margin-bottom: 4px;
+  }
+  .extra { margin-top: 8px; font-size: 13px; color: var(--muted); white-space: normal; }
+  .extra details { margin-top: 4px; }
+  .extra summary { cursor: pointer; }
+  .chunk { margin: 8px 0; padding: 8px; border-left: 3px solid var(--accent); background: var(--bg); white-space: pre-wrap; }
+  .step { margin: 4px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; }
+  .step b { color: var(--text); }
+  .usage { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); white-space: normal; }
+  .usage .spacer { flex: 1; }
+  .usage button { padding: 0 8px; font-size: 14px; border-radius: 6px; }
+  .usage button.chosen { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .approval {
+    margin-top: 8px; padding: 10px; border: 1px solid var(--warn-border); background: var(--warn-bg);
+    border-radius: 8px; white-space: normal;
+  }
+  .approval pre { margin: 6px 0; font-size: 12px; white-space: pre-wrap; }
+  .approval button { margin-right: 6px; }
+  .approval button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .typing { color: var(--muted); font-style: italic; }
+  form { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border); }
+  input[type=text], input[type=number], select {
+    padding: 8px 12px; font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; outline: none; min-width: 0;
+  }
+  form input[type=text] { flex: 1; padding: 10px 14px; }
+  input:focus, select:focus { border-color: var(--accent); }
+  form button { padding: 10px 18px; border-radius: 10px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  .card .label { font-size: 12px; color: var(--muted); }
+  .card .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.q { min-width: 220px; max-width: 420px; }
+  .pass { color: var(--ok); font-weight: 600; }
+  .fail { color: var(--error); font-weight: 600; }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .note { font-size: 13px; color: var(--muted); }
+  .note a { color: var(--accent); }
+  @media (max-width: 700px) {
+    body { flex-direction: column; }
+    aside { width: 100%; border-right: none; border-bottom: 1px solid var(--border); max-height: 34vh; padding: 12px 16px; }
+    .scroll, form, header { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <section>
+    <h2>Mode</h2>
+    <div class="modes">
+      <label><input type="radio" name="mode" value="rag" checked>RAG<small id="model-rag">Search once, answer once</small></label>
+      <label><input type="radio" name="mode" value="agent">Agent<small id="model-agent">create_agent with tools and memory</small></label>
+      <label><input type="radio" name="mode" value="multi">Multi-agent<small id="model-multi">Supervisor + HR / Engineering / Sales</small></label>
+    </div>
+  </section>
+  <section>
+    <h2>Knowledge base</h2>
+    <ul id="docs"><li class="meta">Loading...</li></ul>
+    <div class="meta" id="chunks"></div>
+  </section>
+  <section>
+    <h2>LangSmith</h2>
+    <div class="meta" id="langsmith">...</div>
+  </section>
+  <button id="clear">New conversation</button>
+</aside>
+<main>
+  <header>
+    <h1>Halvorsen Robotics Assistant</h1>
+    <p>Answers come only from the internal PDFs in docs/.</p>
+    <nav class="tabs">
+      <button data-view="chat" class="active">Chat</button>
+      <button data-view="monitoring">Monitoring</button>
+      <button data-view="evaluation">Evaluation</button>
+    </nav>
+  </header>
+
+  <section class="view active" id="view-chat">
+    <div class="scroll"><div id="messages"></div></div>
+    <form id="form">
+      <input id="input" type="text" placeholder="Ask about the documents..." autocomplete="off" autofocus>
+      <button id="send" class="primary">Send</button>
+    </form>
+  </section>
+
+  <section class="view" id="view-monitoring">
+    <div class="scroll">
+      <div class="toolbar">
+        <button id="refresh">Refresh</button>
+        <span class="note">Token counts come from Claude's responses; cost uses list prices. Stored locally in monitoring.db.</span>
+      </div>
+      <div class="cards" id="cards"></div>
+      <h3>By mode</h3>
+      <div class="table-wrap"><table id="by-mode"></table></div>
+      <h3>Recent requests</h3>
+      <div class="table-wrap"><table id="recent"></table></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-evaluation">
+    <div class="scroll">
+      <div class="toolbar">
+        <label>Mode <select id="eval-mode">
+          <option value="rag">RAG</option><option value="agent">Agent</option><option value="multi">Multi-agent</option>
+        </select></label>
+        <label>Questions <input id="eval-limit" type="number" min="1" max="13" value="3" style="width:70px"></label>
+        <button id="eval-run" class="primary">Run</button>
+      </div>
+      <p class="note" id="eval-estimate"></p>
+      <div id="eval-results"></div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const messages = $("messages");
+const chatScroll = document.querySelector("#view-chat .scroll");
+const MODE_NAMES = { rag: "RAG", agent: "Agent", multi: "Multi-agent" };
+let threads = {};  // mode -> thread_id, so each agent mode keeps its own memory
+
+const currentMode = () => document.querySelector("input[name=mode]:checked").value;
+const usd = (x) => "$" + (x || 0).toFixed(4);
+const int = (x) => (x || 0).toLocaleString();
+const secs = (ms) => ((ms || 0) / 1000).toFixed(1) + "s";
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+async function api(url, body) {
+  const res = await fetch(url, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll(".tabs button").forEach(btn => btn.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b === btn));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + btn.dataset.view));
+  if (btn.dataset.view === "monitoring") loadMonitoring();
+  if (btn.dataset.view === "evaluation") loadEstimate();
+}));
+
+// ---------- Chat ----------
+function scrollDown() { chatScroll.scrollTop = chatScroll.scrollHeight; }
+
+function addBot(mode, data) {
+  const msg = el("div", "msg bot");
+  msg.append(el("div", "badge", MODE_NAMES[mode]), document.createElement("br"));
+  if (data.answer) msg.append(data.answer);
+
+  const extra = el("div", "extra");
+  if (data.sources && data.sources.length) {
+    const files = [...new Set(data.sources.map(s => s.source))].sort();
+    extra.append(el("div", "", "Sources: " + files.join(", ")));
+    const details = el("details");
+    details.append(el("summary", "", `Retrieved chunks (${data.sources.length})`));
+    for (const s of data.sources) {
+      const chunk = el("div", "chunk");
+      chunk.append(el("strong", "", `${s.source} (page ${s.page})\n`), s.text);
+      details.append(chunk);
+    }
+    extra.append(details);
+  }
+  if (data.steps && data.steps.length) {
+    const details = el("details");
+    details.append(el("summary", "", `Agent steps (${data.steps.length})`));
+    for (const s of data.steps) {
+      const step = el("div", "step");
+      step.append(el("b", "", `${s.agent} → ${s.tool}`), " " + JSON.stringify(s.args));
+      details.append(step);
+    }
+    extra.append(details);
+  }
+  if (extra.childNodes.length) msg.append(extra);
+  if (data.pending_approval) msg.append(approvalCard(mode, data));
+  if (data.usage) msg.append(usageRow(data));
+  messages.append(msg);
+  scrollDown();
+}
+
+function usageRow(data) {
+  const u = data.usage;
+  const row = el("div", "usage");
+  row.append(el("span", "", `${u.llm_calls} LLM call${u.llm_calls === 1 ? "" : "s"} · ` +
+    `${int(u.input_tokens)} in / ${int(u.output_tokens)} out tokens · ${usd(u.cost_usd)} · ${secs(u.latency_ms)}`));
+  row.append(el("span", "spacer"));
+  const up = el("button", "", "👍"), down = el("button", "", "👎");
+  up.title = "Good answer"; down.title = "Bad answer";
+  const send = async (score, btn) => {
+    try {
+      await api("/api/feedback", { request_id: data.request_id, score });
+      up.classList.toggle("chosen", btn === up);
+      down.classList.toggle("chosen", btn === down);
+    } catch (err) { btn.title = "Feedback failed: " + err.message; }
+  };
+  up.onclick = () => send(1, up);
+  down.onclick = () => send(-1, down);
+  row.append(up, down);
+  return row;
+}
+
+function approvalCard(mode, data) {
+  const card = el("div", "approval");
+  card.append(el("strong", "", "⏸ Approval needed"));
+  for (const a of data.pending_approval) {
+    card.append(el("div", "", `The agent wants to call ${a.tool}:`));
+    card.append(el("pre", "", JSON.stringify(a.args, null, 2)));
+  }
+  const approve = el("button", "approve", "Approve");
+  const reject = el("button", "", "Reject");
+  const decide = async (decision) => {
+    approve.disabled = reject.disabled = true;
+    card.append(el("div", "meta", decision === "approve" ? "Approved." : "Rejected."));
+    await chatCall("/api/resume", { mode, thread_id: data.thread_id, decision }, mode);
+  };
+  approve.onclick = () => decide("approve");
+  reject.onclick = () => decide("reject");
+  const row = el("div");
+  row.append(approve, reject);
+  card.append(row);
+  return card;
+}
+
+async function chatCall(url, body, mode) {
+  $("send").disabled = true;
+  const pending = el("div", "msg bot typing", mode === "rag" ? "Thinking..." : "Agent working...");
+  messages.append(pending);
+  scrollDown();
+  try {
+    const data = await api(url, body);
+    if (data.thread_id) threads[mode] = data.thread_id;
+    pending.remove();
+    addBot(mode, data);
+  } catch (err) {
+    pending.remove();
+    messages.append(el("div", "msg bot error", "⚠️ " + err.message));
+    scrollDown();
+  } finally {
+    $("send").disabled = false;
+    $("input").focus();
+  }
+}
+
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const question = $("input").value.trim();
+  if (!question) return;
+  $("input").value = "";
+  const mode = currentMode();
+  messages.append(el("div", "msg user", question));
+  scrollDown();
+  chatCall("/api/chat", { question, mode, thread_id: threads[mode] || null }, mode);
+});
+
+$("clear").addEventListener("click", () => {
+  messages.replaceChildren();
+  threads = {};
+});
+
+// ---------- Monitoring ----------
+function table(target, headers, rows) {
+  const head = el("tr");
+  headers.forEach(([label, cls]) => { const th = el("th", cls || "", label); head.append(th); });
+  const body = rows.map(cells => {
+    const tr = el("tr");
+    cells.forEach((cell, i) => {
+      const td = el("td", headers[i][1] || "");
+      if (cell instanceof Node) td.append(cell); else td.textContent = cell;
+      tr.append(td);
+    });
+    return tr;
+  });
+  target.replaceChildren(head, ...body);
+  if (!rows.length) {
+    const tr = el("tr"), td = el("td", "meta", "No requests yet.");
+    td.colSpan = headers.length; tr.append(td); target.append(tr);
+  }
+}
+
+async function loadMonitoring() {
+  try {
+    const data = await api("/api/monitoring");
+    const t = data.totals;
+    $("cards").replaceChildren(...[
+      ["Requests", int(t.requests)], ["LLM calls", int(t.llm_calls)],
+      ["Input tokens", int(t.input_tokens)], ["Output tokens", int(t.output_tokens)],
+      ["Total cost", usd(t.cost_usd)], ["Errors", int(t.errors)],
+      ["Feedback", `👍 ${t.thumbs_up || 0} · 👎 ${t.thumbs_down || 0}`],
+    ].map(([label, value]) => {
+      const c = el("div", "card");
+      c.append(el("div", "label", label), el("div", "value", value));
+      return c;
+    }));
+    table($("by-mode"),
+      [["Mode"], ["Requests", "num"], ["LLM calls", "num"], ["Input tok", "num"], ["Output tok", "num"],
+       ["Total cost", "num"], ["Avg cost", "num"], ["Avg latency", "num"], ["Errors", "num"], ["👍 / 👎", "num"]],
+      data.by_mode.map(m => [MODE_NAMES[m.mode] || m.mode, int(m.requests), int(m.llm_calls),
+        int(m.input_tokens), int(m.output_tokens), usd(m.cost_usd), usd(m.avg_cost_usd),
+        secs(m.avg_latency_ms), int(m.errors), `${m.thumbs_up || 0} / ${m.thumbs_down || 0}`]));
+    table($("recent"),
+      [["Time"], ["Source"], ["Mode"], ["Question", "q"], ["Calls", "num"], ["Tokens in/out", "num"],
+       ["Cost", "num"], ["Latency", "num"], ["Feedback"], ["Status"]],
+      data.recent.map(r => {
+        const status = el("span", r.error ? "fail" : "pass", r.error ? "error" : "ok");
+        if (r.error) status.title = r.error;
+        return [new Date(r.ts * 1000).toLocaleTimeString(), r.source, MODE_NAMES[r.mode] || r.mode,
+          r.question, int(r.llm_calls), `${int(r.input_tokens)} / ${int(r.output_tokens)}`,
+          usd(r.cost_usd), secs(r.latency_ms), r.feedback === 1 ? "👍" : r.feedback === -1 ? "👎" : "", status];
+      }));
+  } catch (err) {
+    $("cards").replaceChildren(el("div", "fail", "Could not load monitoring: " + err.message));
+  }
+}
+$("refresh").addEventListener("click", loadMonitoring);
+
+// ---------- Evaluation ----------
+async function loadEstimate() {
+  const mode = $("eval-mode").value, limit = $("eval-limit").value;
+  try {
+    const e = await api(`/api/eval/estimate?mode=${mode}&limit=${limit}`);
+    $("eval-estimate").textContent =
+      `Runs ${e.limit} of ${e.total_questions} test questions in ${MODE_NAMES[mode]} mode. ` +
+      `Estimated cost: ~${usd(e.estimated_cost)} (${usd(e.cost_per_question)} per question, based on ${e.based_on}).`;
+    $("eval-run").textContent = `Run (~${usd(e.estimated_cost)})`;
+  } catch (err) {
+    $("eval-estimate").textContent = "Could not estimate cost: " + err.message;
+  }
+}
+$("eval-mode").addEventListener("change", loadEstimate);
+$("eval-limit").addEventListener("change", loadEstimate);
+
+$("eval-run").addEventListener("click", async () => {
+  const mode = $("eval-mode").value, limit = Number($("eval-limit").value);
+  $("eval-run").disabled = true;
+  $("eval-results").replaceChildren(el("p", "typing", `Running ${limit} question(s)...`));
+  try {
+    const data = await api("/api/eval/run", { mode, limit });
+    const n = data.results.length;
+    const cards = el("div", "cards");
+    [["Answer accuracy", `${Math.round(data.answer_accuracy * n)}/${n}`],
+     ["Retrieval accuracy", `${Math.round(data.retrieval_accuracy * n)}/${n}`],
+     ["Cost", usd(data.total_cost_usd)]].forEach(([label, value]) => {
+      const c = el("div", "card");
+      c.append(el("div", "label", label), el("div", "value", value));
+      cards.append(c);
+    });
+    const wrap = el("div", "table-wrap"), tbl = el("table");
+    wrap.append(tbl);
+    const mark = (ok) => el("span", ok ? "pass" : "fail", ok ? "PASS" : "FAIL");
+    table(tbl,
+      [["Question", "q"], ["Answer", "q"], ["Answer"], ["Retrieval"], ["Missing facts"], ["Cost", "num"], ["Latency", "num"]],
+      data.results.map(r => [r.question, r.answer, mark(r.answer_ok), mark(r.retrieval_ok),
+        r.missing.join(", "), usd(r.cost_usd), secs(r.latency_ms)]));
+    $("eval-results").replaceChildren(cards, wrap);
+  } catch (err) {
+    $("eval-results").replaceChildren(el("p", "fail", "Evaluation failed: " + err.message));
+  } finally {
+    $("eval-run").disabled = false;
+    loadEstimate();
+  }
+});
+
+// ---------- Sidebar ----------
+async function loadDocuments() {
+  try {
+    const data = await api("/api/documents");
+    $("docs").replaceChildren(...data.documents.map(d => el("li", "", "📄 " + d)));
+    $("chunks").textContent = `${data.num_chunks} chunks indexed`;
+    for (const [mode, model] of Object.entries(data.models || {})) {
+      const small = $("model-" + mode);
+      if (small) small.title = model;
+    }
+    const ls = $("langsmith");
+    if (data.langsmith) {
+      ls.replaceChildren("Tracing on → ");
+      const a = el("a", "", "open LangSmith");
+      a.href = "https://smith.langchain.com"; a.target = "_blank"; a.rel = "noopener";
+      ls.append(a);
+    } else {
+      ls.textContent = "Tracing off (set LANGSMITH_TRACING and LANGSMITH_API_KEY in .env)";
+    }
+  } catch {
+    $("docs").replaceChildren(el("li", "meta", "Could not load documents"));
+  }
+}
+loadDocuments();
+</script>
+</body>
+</html>
